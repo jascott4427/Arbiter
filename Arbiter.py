@@ -1,14 +1,15 @@
+import pygame
 import random
 import time
 import math
 from shapely.geometry import Point, Polygon
 import matplotlib.pyplot as plt
 import numpy as np
-from 
+
 
 # Constants
 GRID_SIZE = 25
-FPS = 240  
+FPS = 60  
 FRAME_DELAY = 1 / FPS
 MAX_ITER = 1000
 SPEED = 5
@@ -129,15 +130,21 @@ class FriendlyBot(MovingEntity):
 
 class Environment:
     def __init__(self):
+        print("Initializing Environment...")
         self.enemy_path = [Point(GRID_SIZE // 2, GRID_SIZE // 2), Point(GRID_SIZE // 2, GRID_SIZE - 2), Point(GRID_SIZE // 2, GRID_SIZE // 2)]
         self.enemy = MovingEntity(Point(GRID_SIZE // 2, GRID_SIZE // 2), SPEED, self.enemy_path)
         self.friendly_bot = FriendlyBot(START_POSITION, SPEED)
+        print("Creating RRT...")
         self.rrt = RRT(START_POSITION, FLAG_POSITION, WALLS)
+        print("Setting path for friendly bot...")
         self.friendly_bot.set_path(self.rrt.plan())
         self.last_time = time.time()
         self.running = True
+        self.state = "to_flag"
+        print("Environment initialized.")
 
     def update(self):
+        print("Updating...")
         current_time = time.time()
         delta_time = current_time - self.last_time
         self.last_time = current_time
@@ -145,27 +152,34 @@ class Environment:
         self.enemy.move(delta_time)
         self.friendly_bot.move(delta_time)
 
-        if self.friendly_bot.position.distance(FLAG_POSITION) < 1:
+        if self.state == "to_flag" and self.friendly_bot.position.distance(FLAG_POSITION) < 0.1:
+            print("Reached flag, repathing to start...")
+            self.state = "to_start"
+            self.rrt = RRT(FLAG_POSITION, START_POSITION, WALLS)
+            self.friendly_bot.set_path(self.rrt.plan())
+        elif self.state == "to_start" and self.friendly_bot.position.distance(START_POSITION) < 0.1:
+            print("Reached start, repathing to flag...")
+            self.state = "to_flag"
+            self.rrt = RRT(START_POSITION, FLAG_POSITION, WALLS)
             self.friendly_bot.set_path(self.rrt.plan())
 
     def draw(self):
-        screen.fill((255, 255, 255))  # Clear screen
+        print("Drawing...")
+        screen.fill((255, 255, 255))
 
-        # Draw walls
         for wall in WALLS:
             points = [(int(x * 20), int(y * 20)) for x, y in wall.exterior.coords]
             pygame.draw.polygon(screen, (128, 128, 128), points)
 
-        # Draw flag
         pygame.draw.circle(screen, (0, 255, 0), (int(FLAG_POSITION.x * 20), int(FLAG_POSITION.y * 20)), 10)
-
-        # Draw entities
+        pygame.draw.circle(screen, (255, 255, 0), (int(START_POSITION.x * 20), int(START_POSITION.y * 20)), 10)
         pygame.draw.circle(screen, (255, 0, 0), (int(self.enemy.position.x * 20), int(self.enemy.position.y * 20)), 10)
         pygame.draw.circle(screen, (0, 0, 255), (int(self.friendly_bot.position.x * 20), int(self.friendly_bot.position.y * 20)), 10)
 
         pygame.display.flip()
 
     def run(self):
+        print("Running simulation...")
         while self.running:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -174,8 +188,11 @@ class Environment:
             self.update()
             self.draw()
             clock.tick(FPS)
+        print("Simulation ended.")
 
 if __name__ == "__main__":
+    print("Starting script...")
     env = Environment()
     env.run()
     pygame.quit()
+    print("Script finished.")
