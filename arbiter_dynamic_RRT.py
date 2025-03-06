@@ -209,6 +209,7 @@ class RRT3D(RRT):
     def collision_free(self, point, time):
         """
         Checks if the given point and time are free from collisions in the occupancy grid.
+        First checks for collisions with static obstacles (walls), then dynamic obstacles.
         
         Args:
             point (Point): The point to check for collisions.
@@ -217,6 +218,12 @@ class RRT3D(RRT):
         Returns:
             bool: True if the point and time are free from collisions, False otherwise.
         """
+        # Check for collisions with static obstacles (walls)
+        for wall in self.obstacles:
+            if wall.distance(point) < PLAYER_RADIUS:  # Use PLAYER_RADIUS as buffer
+                return False  # Collides with a static obstacle
+
+        # Check for collisions with dynamic obstacles (occupancy grid)
         x_idx = int(point.x)
         y_idx = int(point.y)
         t_idx = int(time / TIME_STEP)
@@ -245,11 +252,12 @@ class RRT3D(RRT):
     def plan(self):
         """
         Executes the RRT path planning algorithm to find a path from the start to the goal.
+        The goal is considered valid at any time.
         
         Returns:
             list: A list of points and times representing the path from start to goal, or None if no path is found.
         """
-        for _ in range(self.max_iter):
+        for i in range(self.max_iter):
             random_point, random_time = self.generate_random_point()
             nearest = self.nearest_node(random_point, random_time)
             new_point, new_time = self.new_point(nearest, random_point, random_time)
@@ -258,11 +266,14 @@ class RRT3D(RRT):
                 new_node = Node(new_point, nearest, new_time)
                 self.nodes.append(new_node)
 
-                # Check if we reached the goal
-                if new_point.distance(self.goal.point) <= self.step_size and abs(new_time - TIME_HORIZON) <= TIME_STEP:
+                # Check if we reached the goal (ignore time constraint)
+                if new_point.distance(self.goal.point) <= self.step_size:
                     self.goal.parent = new_node
-                    return self.reconstruct_path(self.goal)
+                    path = self.reconstruct_path(self.goal)
+                    print(f"Path found after {i + 1} iterations!")  # Debug print
+                    return path
 
+        print(f"No path found after {self.max_iter} iterations.")  # Debug print
         return None
 
     def reconstruct_path(self, node):
@@ -424,6 +435,8 @@ class Environment:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.running = False
+                    pygame.quit()
+                    return
 
             self.update_occupancy_grid()
             self.update()
@@ -433,68 +446,60 @@ class Environment:
     # Update run_matplotlib to use 3D plotting
     def run_matplotlib(self):
         plt.ion()  # Interactive mode
-        fig = plt.figure(figsize=(12, 6))  # Larger figure for better visualization
+        fig = plt.figure(figsize=(8, 8))  # Single figure for combined plot
 
-        # Create a 3D axis for the occupancy grid
-        ax1 = fig.add_subplot(121, projection='3d')  # Left subplot for occupancy grid
-        ax1.set_title("Occupancy Grid")
-        ax1.set_xlabel("X")
-        ax1.set_ylabel("Y")
-        ax1.set_zlabel("Time (seconds)")
-
-        # Create a 3D axis for the RRT3D tree and path
-        ax2 = fig.add_subplot(122, projection='3d')  # Right subplot for RRT3D tree and path
-        ax2.set_title("RRT3D Tree and Path")
-        ax2.set_xlabel("X")
-        ax2.set_ylabel("Y")
-        ax2.set_zlabel("Time (seconds)")
+        # Create a single 3D axis for both the occupancy grid and RRT3D tree/path
+        ax = fig.add_subplot(111, projection='3d')
+        ax.set_title("RRT3D Tree, Path, and Occupancy Grid")
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Time (seconds)")
 
         while self.running:
             with self.rrt3d.lock:  # Thread-safe access
                 occupancy_grid = self.rrt3d.occupancy_grid.copy()
 
-            # Clear both subplots
-            ax1.clear()
-            ax2.clear()
+            # Clear the plot
+            ax.clear()
+            ax.set_title("RRT3D Tree, Path, and Occupancy Grid")
+            ax.set_xlabel("X")
+            ax.set_ylabel("Y")
+            ax.set_zlabel("Time (seconds)")
 
-            # Set titles and labels for both subplots
-            ax1.set_title("Occupancy Grid")
-            ax1.set_xlabel("X")
-            ax1.set_ylabel("Y")
-            ax1.set_zlabel("Time (seconds)")
-
-            ax2.set_title("RRT3D Tree and Path")
-            ax2.set_xlabel("X")
-            ax2.set_ylabel("Y")
-            ax2.set_zlabel("Time (seconds)")
-
-            # Plot the occupancy grid in the first subplot
+            # Plot the occupancy grid
             x, y, t = np.where(occupancy_grid == 1)
             t_seconds = t * TIME_STEP  # Convert frame index to time in seconds
-            ax1.scatter(x, y, t_seconds, c="red", marker="o", s=10, label="Occupied Cells")
+            ax.scatter(x, y, t_seconds, c="red", marker="o", s=10, label="Occupied Cells")
 
-            # Plot the RRT3D tree and path in the second subplot
+            # Plot the RRT3D tree and path
             if self.rrt3d.nodes:
-                # Plot the RRT3D tree
+                # Plot the RRT3D tree (black lines)
                 for node in self.rrt3d.nodes:
                     if node.parent:
                         # Draw a line from the node to its parent
-                        ax2.plot([node.point.x, node.parent.point.x],
+                        ax.plot([node.point.x, node.parent.point.x],
                                 [node.point.y, node.parent.point.y],
                                 [node.time, node.parent.time],
-                                c="gray", alpha=0.5, linewidth=0.5)
+                                c="black", alpha=0.7, linewidth=1, label="RRT3D Tree" if node == self.rrt3d.nodes[0] else "")
 
-                # Plot the RRT3D path (if it exists)
+                # Plot the RRT3D path (highlighted in red)
                 if self.friendly_bot.path:
                     path = self.friendly_bot.path
                     path_x = [p[0].x for p in path]  # Extract x values
                     path_y = [p[0].y for p in path]  # Extract y values
                     path_t = [p[1] for p in path]  # Extract time values
-                    ax2.plot(path_x, path_y, path_t, c="blue", linewidth=2, label="RRT3D Path")
+                    ax.plot(path_x, path_y, path_t, c="red", linewidth=3, label="Chosen Path")
+                else:
+                    print("No path to plot.")  # Debug print
 
-            # Add legends
-            ax1.legend()
-            ax2.legend()
+            # Plot the goal as a vertical line (valid at any time)
+            goal_x = FLAG_POSITION.x
+            goal_y = FLAG_POSITION.y
+            goal_times = np.linspace(0, TIME_HORIZON, 100)  # Time range for the goal
+            ax.plot([goal_x] * 100, [goal_y] * 100, goal_times, c="green", linestyle="--", linewidth=2, label="Goal (Valid at Any Time)")
+
+            # Add legend
+            ax.legend()
 
             # Adjust layout and draw
             plt.tight_layout()
@@ -503,7 +508,7 @@ class Environment:
 
 # Main function
 if __name__ == "__main__":
-    env = Environment(map_name="maze")
+    env = Environment(map_name="simple")
 
     # Start Pygame and Matplotlib in separate threads
     pygame_thread = threading.Thread(target=env.run_pygame)
