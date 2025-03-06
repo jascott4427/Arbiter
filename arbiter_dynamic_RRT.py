@@ -684,7 +684,7 @@ class MovingEntity:
 
         #print(target_point)  # Debug print
         direction = np.arctan2(target_point.y - self.position.y, target_point.x - self.position.x)
-        distance_to_move = self.speed * delta_time
+        distance_to_move = self.speed * delta_time 
 
         # Compute new position
         new_x = self.position.x + distance_to_move * np.cos(direction)
@@ -837,6 +837,7 @@ class Environment:
         self.last_time = time.time()
         self.running = True
         self.state = "to_flag"
+        self.font = pygame.font.Font(None, 36)
 
     def update_occupancy_grid(self):
         # Predict enemy positions and update the occupancy grid
@@ -893,6 +894,10 @@ class Environment:
         # Draw entities
         pygame.draw.circle(screen, (255, 0, 0), (int(self.enemy.position.x * 20), int(self.enemy.position.y * 20)), 10)
         pygame.draw.circle(screen, (0, 0, 255), (int(self.friendly_bot.position.x * 20), int(self.friendly_bot.position.y * 20)), 10)
+
+        # Display friendly bot's speed
+        speed_text = self.font.render(f"Speed: {self.friendly_bot.speed:.2f}", True, (0, 0, 0))  # Black text
+        screen.blit(speed_text, (10, 10))  # Position the text at the top-left corner
 
         pygame.display.flip()
 
