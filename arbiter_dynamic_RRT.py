@@ -20,9 +20,7 @@ TIME_RESOLUTION = int(TIME_HORIZON / TIME_STEP)  # Number of time steps
 FLAG_POSITION = Point(GRID_SIZE - 2, GRID_SIZE - 2)
 START_POSITION = Point(2, 2)
 PLAYER_RADIUS = 0.5  # Define the radius of the player
-
-# Define different wall configurations
-WALL_CONFIGS = {
+WALL_CONFIGS = {    # Define different wall configurations
     "simple": [
         Polygon([(0, 0), (GRID_SIZE, 0), (GRID_SIZE, 1), (0, 1)]),
         Polygon([(0, GRID_SIZE - 1), (GRID_SIZE, GRID_SIZE - 1), (GRID_SIZE, GRID_SIZE), (0, GRID_SIZE)]),
@@ -51,146 +49,40 @@ WALL_CONFIGS = {
 
 # Pygame setup
 pygame.init()
-screen = pygame.display.set_mode((800, 800))  # Pygame window (800x800)
+screen = pygame.display.set_mode((800, 800))  
 clock = pygame.time.Clock()
 
-# Node and RRT classes (unchanged)
 class Node:
     def __init__(self, point, parent=None, time=None):
         self.point = point
         self.parent = parent
-        self.time = time  # Set time when available
+        self.time = time  # Set time when using 3d tree
 
-class RRT:
-    def __init__(self, start, goal, obstacles, max_iter=MAX_ITER, step_size=1.0):
-        self.start = Node(start)
-        self.goal = Node(goal)
-        self.obstacles = obstacles
-        self.max_iter = max_iter
-        self.step_size = step_size
-        self.nodes = [self.start]
-
-    def generate_random_point(self):
-        return Point(random.uniform(0, GRID_SIZE), random.uniform(0, GRID_SIZE))
-
-    def nearest_node(self, point):
-        return min(self.nodes, key=lambda node: node.point.distance(point))
-
-    def new_point(self, nearest, random_point):
-        direction = np.arctan2(random_point.y - nearest.point.y, random_point.x - nearest.point.x)
-        new_x = nearest.point.x + self.step_size * np.cos(direction)
-        new_y = nearest.point.y + self.step_size * np.sin(direction)
-        return Point(new_x, new_y)
-
-    def collision_free(self, point, buffer=0.5):
-        for wall in self.obstacles:
-            if wall.distance(point) < buffer:
-                return False
-        return True
-
-    def plan(self):
-        for _ in range(self.max_iter):
-            random_point = self.generate_random_point()
-            nearest = self.nearest_node(random_point)
-            new_point = self.new_point(nearest, random_point)
-
-            if self.collision_free(new_point):
-                new_node = Node(new_point, nearest)
-                self.nodes.append(new_node)
-
-                if new_point.distance(self.goal.point) <= self.step_size:
-                    self.goal.parent = new_node
-                    return self.reconstruct_path(self.goal)
-
-        return None
-
-    def reconstruct_path(self, node):
-        path = []
-        while node:
-            path.append(node.point)
-            node = node.parent
-        return path[::-1]
-
-
-class RRT3D(RRT):
-    """
-    A 3D RRT planner that computes a path from a start point to a goal point while respecting obstacles,
-    time constraints, and movement restrictions.
-    
-    Attributes:
-        start (Point): The starting point for the robot.
-        goal (Point): The goal point for the robot.
-        obstacles (list): A list of obstacles in the environment.
-        max_iter (int): The maximum number of iterations to try for pathfinding.
-        step_size (float): The step size used when expanding the tree.
-        max_speed (float): The maximum speed the robot can travel.
-        occupancy_grid (np.array): A 3D grid representing the occupancy of space and time.
-        lock (threading.Lock): A lock for thread safety during tree expansion.
-    """
-
+class RRT3D():
     def __init__(self, start, goal, obstacles, max_iter=MAX_ITER, step_size=1.0, max_speed=SPEED):
-        """
-        Initializes the RRT3D planner.
-        
-        Args:
-            start (Point): The starting point for the robot.
-            goal (Point): The goal point for the robot.
-            obstacles (list): A list of obstacles in the environment.
-            max_iter (int): The maximum number of iterations to try for pathfinding.
-            step_size (float): The step size used when expanding the tree.
-            max_speed (float): The maximum speed the robot can travel.
-        """
         self.start = Node(start, None, 0)
-        self.goal = Node(goal) # end time unknown
+        self.goal = Node(goal) 
         self.obstacles = obstacles
         self.max_iter = max_iter
         self.step_size = step_size
         self.nodes = [self.start]
-        self.occupancy_grid = np.zeros((GRID_SIZE, GRID_SIZE, TIME_RESOLUTION))  # Occupancy grid
-        self.lock = threading.Lock()  # Lock for thread safety
-        self.max_speed = max_speed  # Maximum speed for the robot
+        self.occupancy_grid = np.zeros((GRID_SIZE, GRID_SIZE, TIME_RESOLUTION))  
+        self.lock = threading.Lock()  
+        self.max_speed = max_speed  
 
 
-    def generate_random_point(self):
-        """
-        Generates a random point in the 2D space and time within the defined grid.
-        
-        Returns:
-            tuple: A tuple containing a random 2D point and a random time.
-        """
+    def generate_random_point(self): # within bounds
         x = random.uniform(0, GRID_SIZE)
         y = random.uniform(0, GRID_SIZE)
-        t = random.uniform(0, TIME_HORIZON)  # Random time step within the time horizon
+        t = random.uniform(0, TIME_HORIZON) 
         return Point(x, y), t
 
     def nearest_node(self, point, time):
-        """
-        Finds the nearest node in the RRT tree to a given point and time.
-        
-        Args:
-            point (Point): The target point to find the nearest node to.
-            time (float): The target time to find the nearest node to.
-        
-        Returns:
-            Node: The nearest node in the tree.
-        """
         return min(self.nodes, key=lambda node: np.sqrt((node.point.x - point.x)**2 + 
                                                          (node.point.y - point.y)**2 + 
                                                          (node.time - time)**2))
 
     def new_point(self, nearest, random_point, random_time):
-        """
-        Generates a new point by moving a step from the nearest node towards the random point, 
-        respecting the time constraints.
-        
-        Args:
-            nearest (Node): The nearest node in the tree.
-            random_point (Point): The random target point.
-            random_time (float): The random target time.
-        
-        Returns:
-            tuple: A tuple containing the new point and the new time after taking a step.
-        """
         # Ensure we only move forward in time, and compute direction
         direction = np.arctan2(random_point.y - nearest.point.y, random_point.x - nearest.point.x)
         new_x = nearest.point.x + self.step_size * np.cos(direction)
@@ -207,17 +99,6 @@ class RRT3D(RRT):
         return Point(new_x, new_y), new_time
 
     def collision_free(self, point, time):
-        """
-        Checks if the given point and time are free from collisions in the occupancy grid.
-        First checks for collisions with static obstacles (walls), then dynamic obstacles.
-        
-        Args:
-            point (Point): The point to check for collisions.
-            time (float): The time associated with the point.
-        
-        Returns:
-            bool: True if the point and time are free from collisions, False otherwise.
-        """
         # Check for collisions with static obstacles (walls)
         for wall in self.obstacles:
             if wall.distance(point) < PLAYER_RADIUS:  # Use PLAYER_RADIUS as buffer
@@ -250,13 +131,6 @@ class RRT3D(RRT):
         return True
 
     def plan(self):
-        """
-        Executes the RRT path planning algorithm to find a path from the start to the goal.
-        The goal is considered valid at any time.
-        
-        Returns:
-            list: A list of points and times representing the path from start to goal, or None if no path is found.
-        """
         for i in range(self.max_iter):
             random_point, random_time = self.generate_random_point()
             nearest = self.nearest_node(random_point, random_time)
@@ -277,15 +151,6 @@ class RRT3D(RRT):
         return None
 
     def reconstruct_path(self, node):
-        """
-        Reconstructs the path from the start to the goal by following the parent pointers.
-        
-        Args:
-            node (Node): The goal node from which the path reconstruction starts.
-        
-        Returns:
-            list: A list of tuples containing points and times in the path from start to goal.
-        """
         path = []
         while node:
             path.append((node.point, node.time))
@@ -294,7 +159,7 @@ class RRT3D(RRT):
 
 
 
-# MovingEntity and FriendlyBot classes (unchanged)
+# MovingEntity and Arbiter classes (unchanged)
 class MovingEntity:
     def __init__(self, init_pos, init_speed, path):
         self.position = init_pos
@@ -309,7 +174,7 @@ class MovingEntity:
 
         # Handle both Point objects and (point, time) tuples
         target = self.path[self.current_target]
-        if isinstance(target, tuple):  # For FriendlyBot: (point, time)
+        if isinstance(target, tuple):  # For Arbiter: (point, time)
             target_point = target[0]  # Extract the Point from the tuple
         else:  # For enemy: Point object
             target_point = target
@@ -339,7 +204,7 @@ class MovingEntity:
                 if self.current_target + 1 < len(self.path):
                     self.current_target += 1
                     next_target = self.path[self.current_target]
-                    if isinstance(next_target, tuple):  # For FriendlyBot: (point, time)
+                    if isinstance(next_target, tuple):  # For Arbiter: (point, time)
                         next_target_point = next_target[0]  # Extract the Point from the tuple
                     else:  # For enemy: Point object
                         next_target_point = next_target
@@ -353,7 +218,7 @@ class MovingEntity:
                 if self.current_target - 1 >= 0:
                     self.current_target -= 1
                     next_target = self.path[self.current_target]
-                    if isinstance(next_target, tuple):  # For FriendlyBot: (point, time)
+                    if isinstance(next_target, tuple):  # For Arbiter: (point, time)
                         next_target_point = next_target[0]  # Extract the Point from the tuple
                     else:  # For enemy: Point object
                         next_target_point = next_target
@@ -366,7 +231,7 @@ class MovingEntity:
         else:
             self.position = new_position
 
-class FriendlyBot(MovingEntity):
+class Arbiter(MovingEntity):
     def __init__(self, init_pos, init_speed):
         super().__init__(init_pos, init_speed, [])
         self.current_time = 0  # Track elapsed time
@@ -382,7 +247,7 @@ class FriendlyBot(MovingEntity):
 
         # Handle both Point objects and (point, time) tuples
         target = self.path[self.current_target]
-        if isinstance(target, tuple):  # For FriendlyBot: (point, time)
+        if isinstance(target, tuple):  # For Arbiter: (point, time)
             target_point, target_time = target  # Extract the Point and time from the tuple
         else:  # For enemy: Point object
             target_point = target
@@ -392,7 +257,7 @@ class FriendlyBot(MovingEntity):
         direction = np.arctan2(target_point.y - self.position.y, target_point.x - self.position.x)
         distance_to_target = self.position.distance(target_point)
 
-        # Adjust speed based on time (only for FriendlyBot)
+        # Adjust speed based on time (only for Arbiter)
         if target_time is not None:
             # Calculate the time difference between the current time and the target time
             time_difference = target_time - self.current_time  # You need to track current_time in the class
@@ -426,7 +291,7 @@ class FriendlyBot(MovingEntity):
                 if self.current_target + 1 < len(self.path):
                     self.current_target += 1
                     next_target = self.path[self.current_target]
-                    if isinstance(next_target, tuple):  # For FriendlyBot: (point, time)
+                    if isinstance(next_target, tuple):  # For Arbiter: (point, time)
                         next_target_point, next_target_time = next_target  # Extract the Point and time
                     else:  # For enemy: Point object
                         next_target_point = next_target
@@ -440,7 +305,7 @@ class FriendlyBot(MovingEntity):
                 if self.current_target - 1 >= 0:
                     self.current_target -= 1
                     next_target = self.path[self.current_target]
-                    if isinstance(next_target, tuple):  # For FriendlyBot: (point, time)
+                    if isinstance(next_target, tuple):  # For Arbiter: (point, time)
                         next_target_point, next_target_time = next_target  # Extract the Point and time
                     else:  # For enemy: Point object
                         next_target_point = next_target
@@ -453,17 +318,24 @@ class FriendlyBot(MovingEntity):
         else:
             self.position = new_position
 
-        # Update current_time (only for FriendlyBot)
+        # Update current_time (only for Arbiter)
         if target_time is not None:
             self.current_time += delta_time
 
 # Environment class with threading
 class Environment:
     def __init__(self, map_name="simple"):
-        self.walls = WALL_CONFIGS.get(map_name, WALL_CONFIGS["simple"])  # Default to "simple" if map_name is invalid
-        self.enemy_path = [Point(GRID_SIZE // 2, GRID_SIZE // 2), Point(GRID_SIZE // 2, GRID_SIZE - 2), Point(GRID_SIZE // 2, GRID_SIZE // 2)]  # List of Point objects
+        # Default to "simple" if map_name is invalid
+        self.walls = WALL_CONFIGS.get(map_name, WALL_CONFIGS["simple"]) 
+
+         # List of Point objects for enemy path
+        self.enemy_path = [
+            Point(GRID_SIZE // 2, GRID_SIZE // 2), 
+            Point(GRID_SIZE // 2, GRID_SIZE - 2), 
+            Point(GRID_SIZE // 2, GRID_SIZE // 2)
+        ] 
         self.enemy = MovingEntity(Point(GRID_SIZE // 2, GRID_SIZE // 2), SPEED, self.enemy_path)
-        self.friendly_bot = FriendlyBot(START_POSITION, SPEED)
+        self.friendly_bot = Arbiter(START_POSITION, SPEED)
         self.rrt3d = RRT3D(START_POSITION, FLAG_POSITION, self.walls)
         self.friendly_bot.set_path(self.rrt3d.plan())  # List of tuples (point, time)
         self.last_time = time.time()
@@ -472,7 +344,7 @@ class Environment:
         self.font = pygame.font.Font(None, 36)
 
     def update_occupancy_grid(self):
-        # Predict enemy positions and update the occupancy grid
+        # Update the occupancy grid based on predicted enemy positions
         for t in range(TIME_RESOLUTION):
             enemy_pos = self.predict_enemy_position(t * TIME_STEP)
             x_idx = int(enemy_pos.x)
