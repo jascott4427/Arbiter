@@ -495,7 +495,15 @@ if __name__ == "__main__":
     pygame_thread.start()
     matplotlib_thread.start()
 
-    pygame_thread.join()
-    matplotlib_thread.join()
+    try:
+        while pygame_thread.is_alive() or matplotlib_thread.is_alive():
+            pygame_thread.join(timeout=0.1)
+            matplotlib_thread.join(timeout=0.1)
+    except KeyboardInterrupt:
+        print("Exiting program...")
+        env.running = False
+        pygame_thread.join()
+        matplotlib_thread.join()
 
     pygame.quit()
+    plt.close()
