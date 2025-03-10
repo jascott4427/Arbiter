@@ -158,8 +158,6 @@ class RRT3D():
         return path[::-1]
 
 
-
-# MovingEntity and Arbiter classes (unchanged)
 class MovingEntity:
     def __init__(self, init_pos, init_speed, path):
         self.position = init_pos
@@ -174,7 +172,7 @@ class MovingEntity:
 
         # Handle both Point objects and (point, time) tuples
         target = self.path[self.current_target]
-        if isinstance(target, tuple):  # For Arbiter: (point, time)
+        if isinstance(target, tuple):  # For bot: (point, time)
             target_point = target[0]  # Extract the Point from the tuple
         else:  # For enemy: Point object
             target_point = target
@@ -265,12 +263,14 @@ class Arbiter(MovingEntity):
                 # Adjust speed to reach the target point at the specified time
                 required_speed = distance_to_target / time_difference
                 self.speed = min(required_speed, SPEED)  # Don't exceed the maximum speed
+                print('speeds: ', self.speed, required_speed, "\n")
             else:
                 # If time_difference <= 0, move at maximum speed
                 self.speed = SPEED
         else:
             # For enemy, use the default speed
             self.speed = SPEED
+        
 
         # Compute new position
         distance_to_move = self.speed * delta_time
