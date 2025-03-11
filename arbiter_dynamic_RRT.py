@@ -59,7 +59,7 @@ class Node:
         self.time = time  # Set time when using 3d tree
 
 class RRT3D():
-    def __init__(self, start, goal, obstacles, max_iter=MAX_ITER, step_size=1.0, max_speed=SPEED):
+    def __init__(self, start, goal, obstacles, max_iter=MAX_ITER, step_size=1.0, max_speed=SPEED, goal_bias_probability=0.05):
         self.start = Node(start, None, 0)
         self.goal = Node(goal) 
         self.obstacles = obstacles
@@ -69,13 +69,24 @@ class RRT3D():
         self.occupancy_grid = np.zeros((GRID_SIZE, GRID_SIZE, TIME_RESOLUTION))  
         self.lock = threading.Lock()  
         self.max_speed = max_speed  
+        self.goal_bias_probability = goal_bias_probability  # Probability to bias towards the goal
 
-
-    def generate_random_point(self): # within bounds
-        x = random.uniform(0, GRID_SIZE)
-        y = random.uniform(0, GRID_SIZE)
-        t = random.uniform(0, TIME_HORIZON) 
-        return Point(x, y), t
+    def generate_random_point(self):
+        # With a certain probability, sample the goal or a point closer to the goal
+        if random.random() < self.goal_bias_probability:
+            # Sample a point closer to the goal
+            direction = np.arctan2(self.goal.point.y - self.start.point.y, self.goal.point.x - self.start.point.x)
+            distance = self.step_size * random.uniform(0, 1)  # Move towards the goal by a fraction of step_size
+            x = self.goal.point.x - distance * np.cos(direction)
+            y = self.goal.point.y - distance * np.sin(direction)
+            t = random.uniform(0, TIME_HORIZON)  # Keep time random
+            return Point(x, y), t
+        else:
+            # Sample a completely random point
+            x = random.uniform(0, GRID_SIZE)
+            y = random.uniform(0, GRID_SIZE)
+            t = random.uniform(0, TIME_HORIZON) 
+            return Point(x, y), t
 
     def nearest_node(self, point, time):
         return min(self.nodes, key=lambda node: np.sqrt((node.point.x - point.x)**2 + 
