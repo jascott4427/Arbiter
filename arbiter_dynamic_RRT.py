@@ -390,7 +390,7 @@ class Environment:
     def update_occupancy_grid(self):
         self.rrt3d.occupancy_grid = np.zeros((GRID_SIZE, GRID_SIZE, TIME_RESOLUTION))
         current_time = self.arbiter.reset_time + self.arbiter.current_time  # Get the current time from the arbiter
-        print(current_time)
+        #print(current_time)
         for t in range(TIME_RESOLUTION):
             # Shift the time reference by the current time
             shifted_time = current_time + t * TIME_STEP
