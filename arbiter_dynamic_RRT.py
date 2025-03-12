@@ -38,7 +38,8 @@ TIME_HORIZON = GRID_SIZE * 3 / SPEED  # Total time horizon in seconds
 TIME_RESOLUTION = int(TIME_HORIZON / TIME_STEP)  # Number of time steps
 FLAG_POSITION = Point(GRID_SIZE - 2, GRID_SIZE - 2)
 START_POSITION = Point(2, 2)
-PLAYER_RADIUS = 0.5
+PLAYER_RADIUS = .5
+OCCUPANCY_RADIUS = 2
 
 # Wall configurations
 WALL_CONFIGS = {
@@ -121,23 +122,36 @@ class RRT3D:
         return Point(new_x, new_y), new_time
 
     def collision_free(self, point, time):
+        # Check for walls (static obstacles)
         for wall in self.obstacles:
             if wall.distance(point) < PLAYER_RADIUS:
                 return False
-        x_idx = int(point.x)
-        y_idx = int(point.y)
-        t_idx = int(time / TIME_STEP)
-        if x_idx < 0 or x_idx >= GRID_SIZE or y_idx < 0 or y_idx >= GRID_SIZE or t_idx < 0 or t_idx >= TIME_RESOLUTION:
+
+        # Convert point and time to grid indices
+        x_idx = round(point.x)
+        y_idx = round(point.y)
+        t_idx = round(time / TIME_STEP)
+
+        # Boundary checks
+        if not (0 <= x_idx < GRID_SIZE and 0 <= y_idx < GRID_SIZE and 0 <= t_idx < TIME_RESOLUTION):
             return False
+
+        # Check the current cell
         if self.occupancy_grid[x_idx, y_idx, t_idx] == 1:
             return False
-        for dx in range(-1, 2):
-            for dy in range(-1, 2):
-                for dt in range(-1, 2):
-                    if (0 <= x_idx + dx < GRID_SIZE and
-                        0 <= y_idx + dy < GRID_SIZE and
-                        0 <= t_idx + dt < TIME_RESOLUTION):
-                        if math.sqrt((dx * GRID_SIZE)**2 + (dy * GRID_SIZE)**2 + (dt * TIME_STEP)**2) <= 0.5:
+
+        # Check neighboring cells within PLAYER_RADIUS
+        radius_in_cells = math.ceil(OCCUPANCY_RADIUS / GRID_SIZE)
+        for dx in range(-radius_in_cells, radius_in_cells + 1):
+            for dy in range(-radius_in_cells, radius_in_cells + 1):
+                for dt in range(-radius_in_cells, radius_in_cells + 1):
+                    # Calculate the actual distance in world units
+                    distance = math.sqrt((dx * GRID_SIZE)**2 + (dy * GRID_SIZE)**2 + (dt * TIME_STEP)**2)
+                    if distance <= OCCUPANCY_RADIUS:
+                        # Check if the neighbor is within bounds
+                        if (0 <= x_idx + dx < GRID_SIZE and
+                            0 <= y_idx + dy < GRID_SIZE and
+                            0 <= t_idx + dt < TIME_RESOLUTION):
                             if self.occupancy_grid[x_idx + dx, y_idx + dy, t_idx + dt] == 1:
                                 return False
         return True
@@ -353,7 +367,7 @@ class Environment:
             Point(GRID_SIZE // 2, GRID_SIZE - 2), 
             Point(GRID_SIZE // 2, 2)
         ]
-        self.enemy = MovingEntity(Point(GRID_SIZE//2, GRID_SIZE//2), SPEED, self.enemy_path)
+        self.enemy = MovingEntity(Point(GRID_SIZE//2, GRID_SIZE//2), SPEED/2, self.enemy_path)
         self.arbiter = Arbiter(START_POSITION, SPEED)
         self.rrt3d = RRT3D(START_POSITION, FLAG_POSITION, self.walls)
         path = self.rrt3d.plan()  # List of (Point, time) tuples.
