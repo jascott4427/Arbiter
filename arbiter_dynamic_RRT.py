@@ -32,7 +32,7 @@ GRID_SIZE = 25
 FPS = 120
 FRAME_DELAY = 1 / FPS
 MAX_ITER = 1000
-SPEED = 3
+SPEED = 5
 TIME_STEP = 0.1                # Time resolution for 3D grid
 TIME_HORIZON = GRID_SIZE * 3 / SPEED  # Total time horizon in seconds
 TIME_RESOLUTION = int(TIME_HORIZON / TIME_STEP)  # Number of time steps
@@ -238,10 +238,12 @@ class Arbiter(MovingEntity):
     def __init__(self, init_pos, init_speed):
         super().__init__(init_pos, init_speed, [])
         self.current_time = 0  # Track elapsed time
+        self.reset_time = 0
 
     def set_path(self, path):
         self.path = path  # Expecting list of (Point, time) tuples
         self.current_target = 0
+        self.reset_time += self.current_time
         self.current_time = 0  # Reset time when a new path is set
 
     def move(self, delta_time):
@@ -281,7 +283,7 @@ class Arbiter(MovingEntity):
                     else:
                         next_target_point = next_target
                     direction_to_next = np.arctan2(next_target_point.y - self.position.y,
-                                                   next_target_point.x - self.position.x)
+                                                next_target_point.x - self.position.x)
                     self.position = Point(self.position.x + excess_distance * np.cos(direction_to_next),
                                             self.position.y + excess_distance * np.sin(direction_to_next))
                 else:
@@ -295,7 +297,7 @@ class Arbiter(MovingEntity):
                     else:
                         next_target_point = next_target
                     direction_to_next = np.arctan2(next_target_point.y - self.position.y,
-                                                   next_target_point.x - self.position.x)
+                                                next_target_point.x - self.position.x)
                     self.position = Point(self.position.x + excess_distance * np.cos(direction_to_next),
                                             self.position.y + excess_distance * np.sin(direction_to_next))
                 else:
@@ -303,7 +305,7 @@ class Arbiter(MovingEntity):
         else:
             self.position = new_position
         if target_time is not None:
-            self.current_time += delta_time
+            self.current_time += delta_time  # Update the current time
 
 # -------------------------------
 # Environment Class
@@ -385,10 +387,14 @@ class Environment:
         # If the time exceeds the total path time, return the last point
         return path[-1]
 
-    def update_occupancy_grid(self, start_time=0):
+    def update_occupancy_grid(self):
         self.rrt3d.occupancy_grid = np.zeros((GRID_SIZE, GRID_SIZE, TIME_RESOLUTION))
+        current_time = self.arbiter.reset_time + self.arbiter.current_time  # Get the current time from the arbiter
+        print(current_time)
         for t in range(TIME_RESOLUTION):
-            enemy_pos = self.predict_enemy_position(t * TIME_STEP)
+            # Shift the time reference by the current time
+            shifted_time = current_time + t * TIME_STEP
+            enemy_pos = self.predict_enemy_position(shifted_time)
             x_idx = int(enemy_pos.x)
             y_idx = int(enemy_pos.y)
             if 0 <= x_idx < GRID_SIZE and 0 <= y_idx < GRID_SIZE:
@@ -471,6 +477,7 @@ class MatplotlibFrame(tk.Frame):
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
         ax.set_zlabel("Time (rel)")
+        ax.set_ylim(GRID_SIZE, 0)
         with self.env.rrt3d.lock:
             occ_grid = self.env.rrt3d.occupancy_grid.copy()
         x_occ, y_occ, t_occ = np.where(occ_grid == 1)
