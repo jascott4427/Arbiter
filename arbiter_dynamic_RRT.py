@@ -32,7 +32,7 @@ GRID_SIZE = 25
 FPS = 120
 FRAME_DELAY = 1 / FPS
 MAX_ITER = 1000
-SPEED = 5
+SPEED = 10
 TIME_STEP = 0.1                # Time resolution for 3D grid
 TIME_HORIZON = GRID_SIZE * 3 / SPEED  # Total time horizon in seconds
 TIME_RESOLUTION = int(TIME_HORIZON / TIME_STEP)  # Number of time steps
@@ -78,7 +78,7 @@ class Node:
         self.time = time
 
 class RRT3D:
-    def __init__(self, start, goal, obstacles, max_iter=MAX_ITER, step_size=1.0, max_speed=SPEED, goal_bias_probability=0.05):
+    def __init__(self, start, goal, obstacles, max_iter=MAX_ITER, step_size=1.0, max_speed=SPEED/2, goal_bias_probability=0.05):
         self.start = Node(start, None, 0)
         self.goal = Node(goal)
         self.obstacles = obstacles
@@ -239,41 +239,64 @@ class Arbiter(MovingEntity):
         super().__init__(init_pos, init_speed, [])
         self.current_time = 0  # Track elapsed time
         self.reset_time = 0
+        self.time_error = 0  # Track time difference between path and actual motion
 
     def set_path(self, path):
         self.path = path  # Expecting list of (Point, time) tuples
         self.current_target = 0
         self.reset_time += self.current_time
         self.current_time = 0  # Reset time when a new path is set
+        self.time_error = 0  # Reset time error when a new path is set
 
     def move(self, delta_time):
         if not self.path or self.current_target >= len(self.path):
+            print("No path or all targets reached.")
             return
+
         target = self.path[self.current_target]
         if isinstance(target, tuple):
             target_point, target_time = target
         else:
             target_point = target
             target_time = None
+
+        # Debug: Print current target and time
+        print(f"Current Target: {self.current_target}, Target Point: {target_point}, Target Time: {target_time}")
+
         direction = np.arctan2(target_point.y - self.position.y, target_point.x - self.position.x)
         distance_to_target = self.position.distance(target_point)
+
+        # Debug: Print distance to target and current time
+        print(f"Distance to Target: {distance_to_target}, Current Time: {self.current_time}")
+
         if target_time is not None:
             time_difference = target_time - self.current_time
             if time_difference > 0:
                 required_speed = distance_to_target / time_difference
                 self.speed = min(required_speed, SPEED)
-                print('speeds: ', self.speed, required_speed, "\n")
+                # Debug: Print required speed and current speed
+                print(f"Required Speed: {required_speed}, Current Speed: {self.speed}")
             else:
                 self.speed = SPEED
+                # Debug: Print that time difference is <= 0, using max speed
+                print(f"Time difference <= 0, using max speed: {self.speed}")
         else:
             self.speed = SPEED
+            # Debug: Print that no target time is set, using max speed
+            print(f"No target time set, using max speed: {self.speed}")
+
         distance_to_move = self.speed * delta_time
         new_x = self.position.x + distance_to_move * np.cos(direction)
         new_y = self.position.y + distance_to_move * np.sin(direction)
         new_position = Point(new_x, new_y)
+
+        # Debug: Print new position and distance moved
+        print(f"New Position: {new_position}, Distance Moved: {distance_to_move}")
+
         if new_position.distance(target_point) > distance_to_target:
             excess_distance = new_position.distance(target_point) - distance_to_target
             self.position = target_point
+
             if self.forward:
                 if self.current_target + 1 < len(self.path):
                     self.current_target += 1
@@ -286,8 +309,12 @@ class Arbiter(MovingEntity):
                                                 next_target_point.x - self.position.x)
                     self.position = Point(self.position.x + excess_distance * np.cos(direction_to_next),
                                             self.position.y + excess_distance * np.sin(direction_to_next))
+                    # Debug: Print moving to next target
+                    print(f"Moving to next target: {self.current_target}")
                 else:
                     self.forward = False
+                    # Debug: Print reversing direction
+                    print("Reversing direction (end of path reached)")
             else:
                 if self.current_target - 1 >= 0:
                     self.current_target -= 1
@@ -300,12 +327,20 @@ class Arbiter(MovingEntity):
                                                 next_target_point.x - self.position.x)
                     self.position = Point(self.position.x + excess_distance * np.cos(direction_to_next),
                                             self.position.y + excess_distance * np.sin(direction_to_next))
+                    # Debug: Print moving to previous target
+                    print(f"Moving to previous target: {self.current_target}")
                 else:
                     self.forward = True
+                    # Debug: Print reversing direction
+                    print("Reversing direction (start of path reached)")
         else:
             self.position = new_position
+
         if target_time is not None:
             self.current_time += delta_time  # Update the current time
+            self.time_error = self.current_time - target_time  # Calculate time error
+            # Debug: Print current time and time error
+            print(f"Current Time: {self.current_time}, Time Error: {self.time_error}")
 
 # -------------------------------
 # Environment Class
