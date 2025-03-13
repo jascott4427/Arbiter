@@ -205,6 +205,21 @@ def trapezoidal_decomposition(walls, degrees=60):
             if is_valid:
                 valid_edges.append(line)
 
+    # Step 5: Form trapezoidal cells
+    for i in range(len(segments) - 1):
+        seg1 = segments[i]
+        seg2 = segments[i + 1]
+
+        # Get the endpoints of the segments
+        x1, y1 = seg1.coords[0]
+        x2, y2 = seg1.coords[1]
+        x3, y3 = seg2.coords[0]
+        x4, y4 = seg2.coords[1]
+
+        # Create a trapezoid using the endpoints
+        trapezoid = Polygon([(x1, y1), (x2, y2), (x4, y4), (x3, y3)])
+        cells.append(trapezoid)
+
     vertices.extend(extra_vertices)
     segments.extend(valid_edges)
     print('Cells: ', len(cells), '\n', 'Vertices: ', len(vertices), '\n', 'Lines: ', len(segments))
@@ -725,10 +740,10 @@ class CellDecompFrame(tk.Frame):
             x, y = wall.exterior.xy
             ax.fill(x, y, color="gray", alpha=0.5, label="Walls" if wall == walls[0] else "")
 
-        # Draw trapezoidal cells
-        for cell in cells:
+        for i, cell in enumerate(cells):
             x, y = cell.exterior.xy
-            ax.fill(x, y, color="green", alpha=0.3, label="Cells" if cell == cells[0] else "")
+            ax.fill(x, y, color="green", alpha=0.1 + 0.1 * (i / len(cells)), 
+                    label="Cells" if i == 0 else "")
 
         # Visualize filtered vertices
         if vertices:
