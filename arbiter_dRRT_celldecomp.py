@@ -74,14 +74,14 @@ def trapezoidal_decomposition(walls, degrees=30):
     """
     Perform trapezoidal cell decomposition on the map.
     :param walls: List of Polygon objects representing walls/obstacles.
-    :return: List of trapezoidal cells (Polygon objects).
+    :return: List of trapezoidal cells (Polygon objects), vertices, and segments.
     """
     cells = []
     vertices = []
+    segments = []
 
     # Step 1: Collect all vertices from the walls
     vertices = set()
-
     for wall in walls:
         vertices.update(wall.exterior.coords)
 
@@ -120,33 +120,65 @@ def trapezoidal_decomposition(walls, degrees=30):
     vertices = sorted(vertices, key=lambda v: project_point(v))
 
     # Step 3: Sweep line algorithm to create trapezoidal cells
-    min = 1 
-    max = GRID_SIZE-1
-    for v in vertices: # TODO
-        # Mark sweep line
-        lower_half_line = 
-        upper_half_line = 
-        sections = [lower_half_line, upper_half_line]
-        for segment in sections:
-            if segment.intersects(wall) or Out of Bounds:
-                delete segment
-            else
-                save segment for plotting
+    inc = .02
+    min = 1
+    max = GRID_SIZE - 1
+    for vertex in vertices:
+        x, y = vertex
 
-        # Create a line segment from v1 to v2
-        line = LineString([])
+        # Create a line extending from the vertex at the sweep line angle
+        # The line will extend in both directions until it hits a wall or the grid boundary
+        # Direction 1: Positive slope (upwards)
+        x1, y1 = x, y
+        while True:
+            x1 += inc  # Small step in x-direction
+            y1 += sweep_line_slope * inc  # Corresponding step in y-direction
 
-        # Check if the line intersects any walls
-        intersects = False
-        for wall in walls:
-            if line.intersects(wall):
-                intersects = True
+            # Check if the new point is outside the grid
+            if x1 < min or x1 > max or y1 < min or y1 > max:
                 break
 
-        # If no intersection, create a trapezoidal cell
-        if not intersects:
-            cells.append(cell)
-    print('Cells: ', len(cells), '\n', 'Vertices: ', len(vertices), , '\n', 'Lines: ', len(segments))
+            # Check if the line segment intersects any wall
+            line_segment = LineString([(x, y), (x1, y1)])
+            intersects = False
+            for wall in walls:
+                if line_segment.crosses(wall):
+                    intersects = True
+                    break
+
+            if intersects:
+                break
+
+        # Direction 2: Negative slope (downwards)
+        x2, y2 = x, y
+        while True:
+            x2 -= inc  # Small step in x-direction
+            y2 -= sweep_line_slope * inc  # Corresponding step in y-direction
+
+            # Check if the new point is outside the grid
+            if x2 < min or x2 > max or y2 < min or y2 > max:
+                break
+
+            # Check if the line segment intersects any wall
+            line_segment = LineString([(x, y), (x2, y2)])
+            intersects = False
+            for wall in walls:
+                if line_segment.crosses(wall):
+                    intersects = True
+                    break
+
+            if intersects:
+                break
+
+        # Create the line segment from (x1, y1) to (x2, y2)
+        line = LineString([(x1, y1), (x2, y2)])
+        segments.append(line)
+
+        # Create trapezoidal cells using the sweep lines
+        # (This part will depend on how you want to define the cells)
+        # For now, we'll just collect the segments and vertices
+
+    print('Cells: ', len(cells), '\n', 'Vertices: ', len(vertices), '\n', 'Lines: ', len(segments))
     return cells, vertices, segments
 
 # -------------------------------
@@ -675,7 +707,9 @@ class CellDecompFrame(tk.Frame):
             ax.scatter(x_vertices, y_vertices, color="blue", label="Vertices")
 
         for line in self.env.lines:
-            plot line # TODO
+            x, y = line.xy
+            ax.plot(x, y, color="blue", linewidth=1, label="Segments" if line == self.env.lines[0] else "")
+        
         # Draw sweep line (optional)
         # sweep_line_angle = np.radians(30)
         # sweep_line_x = np.linspace(0, GRID_SIZE, 100)
