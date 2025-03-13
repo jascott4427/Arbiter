@@ -70,6 +70,12 @@ WALL_CONFIGS = {
     ]
 }
 
+def is_near_vertex(point, vertices, tol):
+            for v in vertices:
+                if Point(point).distance(Point(v)) < tol:
+                    return True
+            return False
+
 def trapezoidal_decomposition(walls, degrees=30):
     """
     Perform trapezoidal cell decomposition on the map.
@@ -123,6 +129,7 @@ def trapezoidal_decomposition(walls, degrees=30):
     inc = .02
     min = 1
     max = GRID_SIZE - 1
+    extra_vertices = set()
     for vertex in vertices:
         x, y = vertex
 
@@ -142,7 +149,7 @@ def trapezoidal_decomposition(walls, degrees=30):
             line_segment = LineString([(x, y), (x1, y1)])
             intersects = False
             for wall in walls:
-                if line_segment.crosses(wall):
+                if line_segment.crosses(wall) or wall.contains(Point(x1, y1)):
                     intersects = True
                     break
 
@@ -163,7 +170,7 @@ def trapezoidal_decomposition(walls, degrees=30):
             line_segment = LineString([(x, y), (x2, y2)])
             intersects = False
             for wall in walls:
-                if line_segment.crosses(wall):
+                if line_segment.crosses(wall) or wall.contains(Point(x2, y2)):
                     intersects = True
                     break
 
@@ -174,9 +181,17 @@ def trapezoidal_decomposition(walls, degrees=30):
         line = LineString([(x1, y1), (x2, y2)])
         segments.append(line)
 
+        for point in [(x1, y1), (x2, y2)]:
+            if not is_near_vertex(point, vertices, 0.02):
+                extra_vertices.add(point)
+        
+        # Save vertices
+        
         # Create trapezoidal cells using the sweep lines
         # (This part will depend on how you want to define the cells)
         # For now, we'll just collect the segments and vertices
+    
+    vertices.extend(extra_vertices)
 
     print('Cells: ', len(cells), '\n', 'Vertices: ', len(vertices), '\n', 'Lines: ', len(segments))
     return cells, vertices, segments
