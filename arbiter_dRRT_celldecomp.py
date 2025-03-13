@@ -70,7 +70,7 @@ WALL_CONFIGS = {
     ]
 }
 
-def trapezoidal_decomposition(walls):
+def trapezoidal_decomposition(walls, degrees=30):
     """
     Perform trapezoidal cell decomposition on the map.
     :param walls: List of Polygon objects representing walls/obstacles.
@@ -80,12 +80,33 @@ def trapezoidal_decomposition(walls):
     vertices = []
 
     # Step 1: Collect all vertices from the walls
+    vertices = set()
+
     for wall in walls:
-        vertices.extend(list(wall.exterior.coords))
+        vertices.update(wall.exterior.coords)
+
+    # Filter out vertices on the border of the grid
+    filtered_vertices = [
+        (x, y) for x, y in vertices
+        if x != 0 and x != GRID_SIZE and y != 0 and y != GRID_SIZE
+    ]
+
+    # Add interior corners
+    interior_corners = [
+        (1, 1), 
+        (1, GRID_SIZE - 1), 
+        (GRID_SIZE - 1, 1), 
+        (GRID_SIZE - 1, GRID_SIZE - 1)
+    ]
+    filtered_vertices.extend(interior_corners)
+
+    # Remove duplicate vertices
+    filtered_vertices = list(set(filtered_vertices))
+    vertices = filtered_vertices
 
     # Step 2: Sort vertices based on their position along the sweep line
     # Sweep line angle: 30 degrees (not parallel to any wall)
-    sweep_line_angle = np.radians(30)  # Convert degrees to radians
+    sweep_line_angle = np.radians(degrees)  # Convert degrees to radians
     sweep_line_slope = np.tan(sweep_line_angle)  # Slope of the sweep line
 
     # Function to project a point onto the sweep line
@@ -99,12 +120,21 @@ def trapezoidal_decomposition(walls):
     vertices = sorted(vertices, key=lambda v: project_point(v))
 
     # Step 3: Sweep line algorithm to create trapezoidal cells
-    for i in range(len(vertices) - 1):
-        v1 = vertices[i]
-        v2 = vertices[i + 1]
+    min = 1 
+    max = GRID_SIZE-1
+    for v in vertices: # TODO
+        # Mark sweep line
+        lower_half_line = 
+        upper_half_line = 
+        sections = [lower_half_line, upper_half_line]
+        for segment in sections:
+            if segment.intersects(wall) or Out of Bounds:
+                delete segment
+            else
+                save segment for plotting
 
         # Create a line segment from v1 to v2
-        line = LineString([v1, v2])
+        line = LineString([])
 
         # Check if the line intersects any walls
         intersects = False
@@ -115,17 +145,9 @@ def trapezoidal_decomposition(walls):
 
         # If no intersection, create a trapezoidal cell
         if not intersects:
-            # Create a trapezoid using the sweep line and the vertices
-            # Extend the sweep line to create the trapezoid
-            cell = Polygon([
-                v1,
-                v2,
-                (v2[0] + 1, v2[1] + sweep_line_slope),  # Extend along the sweep line
-                (v1[0] + 1, v1[1] + sweep_line_slope)    # Extend along the sweep line
-            ])
             cells.append(cell)
-    print('Cells: ', len(cells), '\n', 'Vertices: ', len(vertices))
-    return cells, vertices
+    print('Cells: ', len(cells), '\n', 'Vertices: ', len(vertices), , '\n', 'Lines: ', len(segments))
+    return cells, vertices, segments
 
 # -------------------------------
 # Node and RRT3D Classes
@@ -420,7 +442,7 @@ class Arbiter(MovingEntity):
 class Environment:
     def __init__(self, map_name="simple", plot_update_callback=None):
         self.walls = WALL_CONFIGS.get(map_name, WALL_CONFIGS["simple"])
-        self.cells, self.verts = trapezoidal_decomposition(self.walls)  
+        self.cells, self.verts, self.lines = trapezoidal_decomposition(self.walls, 30)  
         self.enemy_path = [
             Point(GRID_SIZE // 2, GRID_SIZE // 2),
             Point(GRID_SIZE // 2, GRID_SIZE - 2), 
@@ -647,19 +669,13 @@ class CellDecompFrame(tk.Frame):
             x, y = cell.exterior.xy
             ax.fill(x, y, color="green", alpha=0.3, label="Cells" if cell == cells[0] else "")
 
-        # Remove duplicate vertices
-        filtered_vertices = list(set(filtered_vertices))
-
-        # Filter out vertices on the border of the grid
-        interior_corners = [(1,1), (1, GRID_SIZE-1), (GRID_SIZE-1, 1), (GRID_SIZE-1,GRID_SIZE-1)]
-        for corner in interior_corners:
-            filtered_vertices.append(corner)
-
         # Visualize filtered vertices
-        if filtered_vertices:
-            x_vertices, y_vertices = zip(*filtered_vertices)
+        if vertices:
+            x_vertices, y_vertices = zip(*vertices)
             ax.scatter(x_vertices, y_vertices, color="blue", label="Vertices")
 
+        for line in self.env.lines:
+            plot line # TODO
         # Draw sweep line (optional)
         # sweep_line_angle = np.radians(30)
         # sweep_line_x = np.linspace(0, GRID_SIZE, 100)
