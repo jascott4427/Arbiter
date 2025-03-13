@@ -76,7 +76,7 @@ def is_near_vertex(point, vertices, tol):
                     return True
             return False
 
-def trapezoidal_decomposition(walls, degrees=30):
+def trapezoidal_decomposition(walls, degrees=60):
     """
     Perform trapezoidal cell decomposition on the map.
     :param walls: List of Polygon objects representing walls/obstacles.
@@ -130,7 +130,7 @@ def trapezoidal_decomposition(walls, degrees=30):
     min = 1
     max = GRID_SIZE - 1
     extra_vertices = set()
-    for vertex in vertices:
+    for i, vertex in enumerate(vertices):
         x, y = vertex
 
         # Create a line extending from the vertex at the sweep line angle
@@ -184,17 +184,31 @@ def trapezoidal_decomposition(walls, degrees=30):
         for point in [(x1, y1), (x2, y2)]:
             if not is_near_vertex(point, vertices, 0.02):
                 extra_vertices.add(point)
-        
-        # Save vertices
-        
-        # Create trapezoidal cells using the sweep lines
-        # (This part will depend on how you want to define the cells)
-        # For now, we'll just collect the segments and vertices
-    
-    vertices.extend(extra_vertices)
 
+    valid_edges = []
+    
+    for i, v1 in enumerate(vertices):
+        for j, v2 in enumerate(vertices):
+            if i >= j:
+                continue  # Avoid duplicate checks
+            
+            line = LineString([v1, v2])
+            
+            # Check if the line segment is on the border of any obstacle
+            is_valid = False
+            for obs in walls:
+                if line.touches(obs) and wall.contains(wall) and not line.crosses(wall):  # Ensures the edge aligns with the obstacle boundary
+                    if line.difference(obs.boundary).is_empty:
+                        is_valid = True
+                        break
+
+            if is_valid:
+                valid_edges.append(line)
+
+    vertices.extend(extra_vertices)
+    segments.extend(valid_edges)
     print('Cells: ', len(cells), '\n', 'Vertices: ', len(vertices), '\n', 'Lines: ', len(segments))
-    return cells, vertices, segments
+    return cells, vertices, segments#, nodes
 
 # -------------------------------
 # Node and RRT3D Classes
