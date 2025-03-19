@@ -69,6 +69,48 @@ WALL_CONFIGS = {
     ]
 }
 
+from scipy.spatial import Voronoi
+from shapely.geometry import Polygon, MultiPolygon
+
+def generate_voronoi_diagram(walls, grid_size):
+    """
+    Generate a Voronoi diagram based on obstacle boundaries.
+    :param walls: List of Polygon objects representing walls/obstacles.
+    :param grid_size: Size of the grid.
+    :return: Voronoi diagram and its regions clipped to the free space.
+    """
+    # Extract obstacle vertices as seeds for the Voronoi diagram
+    seeds = []
+    for wall in walls:
+        seeds.extend(wall.exterior.coords[:-1])  # Exclude the last duplicate vertex
+
+    # Add boundary points to ensure the Voronoi diagram covers the entire grid
+    seeds.extend([(0, 0), (0, grid_size), (grid_size, 0), (grid_size, grid_size)])
+
+    # Generate the Voronoi diagram
+    vor = Voronoi(seeds)
+
+    # Clip Voronoi regions to the free space
+    free_space = Polygon([(0, 0), (0, grid_size), (grid_size, grid_size), (grid_size, 0)])
+    for obs in walls:
+        free_space = free_space.difference(obs)
+
+    clipped_regions = []
+    for region in vor.regions:
+        if not region or -1 in region:  # Skip empty or invalid regions
+            continue
+        # Get the vertices of the Voronoi region
+        vertices = [vor.vertices[i] for i in region]
+        if len(vertices) < 3:  # Skip regions with fewer than 3 vertices
+            continue
+        # Create a polygon for the Voronoi region
+        voronoi_polygon = Polygon(vertices)
+        # Clip the Voronoi region to the free space
+        clipped_region = voronoi_polygon.intersection(free_space)
+        if not clipped_region.is_empty:
+            clipped_regions.append(clipped_region)
+
+    return vor, clipped_regions
 def is_near_vertex(point, vertices, tol):
             for v in vertices:
                 if Point(point).distance(Point(v)) < tol:
@@ -603,7 +645,7 @@ class Arbiter(MovingEntity):
 class Environment:
     def __init__(self, map_name="maze", plot_update_callback=None):
         self.walls = WALL_CONFIGS.get(map_name, WALL_CONFIGS["maze"])
-        self.cells, self.verts, self.lines = trapezoidal_decomposition(self.walls, 30)  
+        self.voronoi, self.voronoi_regions = generate_voronoi_diagram(self.walls, GRID_SIZE)
         self.enemy_path = [
             Point(GRID_SIZE // 2, GRID_SIZE // 2),
             Point(GRID_SIZE // 2, GRID_SIZE - 2), 
@@ -807,43 +849,30 @@ class CellDecompFrame(tk.Frame):
 
     def update_plot(self):
         """
-        Update the Matplotlib plot with the trapezoidal cell decomposition.
+        Update the Matplotlib plot with the Voronoi diagram.
         """
         self.figure.clf()
         ax = self.figure.add_subplot(111)
-        ax.set_title("Trapezoidal Cell Decomposition")
+        ax.set_title("Voronoi Diagram")
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
         ax.set_xlim(0, GRID_SIZE)
         ax.set_ylim(0, GRID_SIZE)
 
         # Draw walls
-        walls = self.env.walls
-        cells = self.env.cells
-        vertices = self.env.verts
-        for wall in walls:
+        for wall in self.env.walls:
             x, y = wall.exterior.xy
-            ax.fill(x, y, color="gray", alpha=0.5, label="Walls" if wall == walls[0] else "")
+            ax.fill(x, y, color="gray", alpha=0.5, label="Walls" if wall == self.env.walls[0] else "")
 
-        for i, cell in enumerate(cells):
-            x, y = cell.exterior.xy
-            ax.fill(x, y, color="green", alpha=0.1 + 0.1 * (i / len(cells)), 
-                    label="Cells" if i == 0 else "")
-
-        # Visualize filtered vertices
-        if vertices:
-            x_vertices, y_vertices = zip(*vertices)
-            ax.scatter(x_vertices, y_vertices, color="blue", label="Vertices")
-
-        for line in self.env.lines:
-            x, y = line.xy
-            ax.plot(x, y, color="blue", linewidth=1, label="Segments" if line == self.env.lines[0] else "")
-        
-        # Draw sweep line (optional)
-        # sweep_line_angle = np.radians(30)
-        # sweep_line_x = np.linspace(0, GRID_SIZE, 100)
-        # sweep_line_y = np.tan(sweep_line_angle) * sweep_line_x
-        # ax.plot(sweep_line_x, sweep_line_y, color="red", linestyle="--", label="Sweep Line")
+        # Draw Voronoi regions
+        for region in self.env.voronoi_regions:
+            if isinstance(region, Polygon):
+                x, y = region.exterior.xy
+                ax.plot(x, y, color="blue", linewidth=1)
+            elif isinstance(region, MultiPolygon):
+                for poly in region.geoms:
+                    x, y = poly.exterior.xy
+                    ax.plot(x, y, color="blue", linewidth=1)
 
         ax.legend()
         self.canvas.draw()
