@@ -31,11 +31,9 @@ from PIL import Image, ImageTk
 GRID_SIZE = 25
 FPS = 120
 FRAME_DELAY = 1 / FPS
-MAX_ITER = 1000
 SPEED = 10
 TIME_STEP = 0.1                # Time resolution for 3D grid
 TIME_HORIZON = GRID_SIZE * 3 / SPEED  # Total time horizon in seconds
-TIME_RESOLUTION = int(TIME_HORIZON / TIME_STEP)  # Number of time steps
 FLAG_POSITION = Point(GRID_SIZE - 2, GRID_SIZE - 2)
 START_POSITION = Point(2, 2)
 PLAYER_RADIUS = 0.5
@@ -80,123 +78,93 @@ WALL_CONFIGS = {
 }
 
 # -------------------------------
-# Node and RRT3D Classes
+# Collision Checking Functions for PRM
 # -------------------------------
-class Node:
-    def __init__(self, point, parent=None, time=None):
-        self.point = point
-        self.parent = parent
-        self.time = time
+def is_point_collision_free(point, t, obstacles, enemy):
+    for wall in obstacles:
+        if wall.distance(point) < PLAYER_RADIUS:
+            return False
+    if enemy is not None:
+        pred_pos, pred_facing = enemy.predict_state(t)
+        dx = point.x - pred_pos.x
+        dy = point.y - pred_pos.y
+        dist = math.sqrt(dx*dx + dy*dy)
+        if dist <= enemy.fov_range:
+            angle_to_point = math.degrees(math.atan2(dy, dx))
+            facing_deg = math.degrees(pred_facing)
+            angle_diff = (angle_to_point - facing_deg + 180) % 360 - 180
+            if abs(angle_diff) <= enemy.fov_angle/2:
+                return False
+    return True
 
-class RRT3D:
-    def __init__(self, start, goal, obstacles, max_iter=MAX_ITER, step_size=1.0, max_speed=SPEED/2, goal_bias_probability=0.05, enemy=None):
-        self.start = Node(start, None, 0)
-        self.goal = Node(goal)
-        self.obstacles = obstacles
-        self.max_iter = max_iter
-        self.step_size = step_size
-        self.nodes = [self.start]
-        self.occupancy_grid = np.zeros((GRID_SIZE, GRID_SIZE, TIME_RESOLUTION))
-        self.lock = threading.Lock()
-        self.max_speed = max_speed
-        self.goal_bias_probability = goal_bias_probability
-        self.enemy = enemy
+def is_edge_collision_free(n1, n2, obstacles, enemy, n_steps=10):
+    p1, t1 = n1
+    p2, t2 = n2
+    for i in range(n_steps+1):
+        fraction = i / n_steps
+        interp_x = p1.x + fraction * (p2.x - p1.x)
+        interp_y = p1.y + fraction * (p2.y - p1.y)
+        interp_t = t1 + fraction * (t2 - t1)
+        if not is_point_collision_free(Point(interp_x, interp_y), interp_t, obstacles, enemy):
+            return False
+    return True
 
-    def generate_random_point(self):
-        if random.random() < self.goal_bias_probability:
-            direction = math.atan2(self.goal.point.y - self.start.point.y, self.goal.point.x - self.start.point.x)
-            distance = self.step_size * random.uniform(0, 1)
-            x = self.goal.point.x - distance * math.cos(direction)
-            y = self.goal.point.y - distance * math.sin(direction)
-            t = random.uniform(0, TIME_HORIZON)
-            return Point(x, y), t
-        else:
+# -------------------------------
+# PRM Planner (Spatio-Temporal)
+# -------------------------------
+class PRMPlanner:
+    @staticmethod
+    def plan(start, goal, obstacles, enemy, n_samples=300, connection_radius=10, tolerance=1.0):
+        samples = []
+        samples.append((start, 0))
+        samples.append((goal, TIME_HORIZON))
+        while len(samples) < n_samples + 2:
             x = random.uniform(0, GRID_SIZE)
             y = random.uniform(0, GRID_SIZE)
             t = random.uniform(0, TIME_HORIZON)
-            return Point(x, y), t
-
-    def nearest_node(self, point, time):
-        return min(self.nodes, key=lambda node: math.sqrt((node.point.x - point.x)**2 +
-                                                            (node.point.y - point.y)**2 +
-                                                            (node.time - time)**2))
-
-    def new_point(self, nearest, random_point, random_time):
-        direction = math.atan2(random_point.y - nearest.point.y, random_point.x - nearest.point.x)
-        new_x = nearest.point.x + self.step_size * math.cos(direction)
-        new_y = nearest.point.y + self.step_size * math.sin(direction)
-        new_time = nearest.time + self.step_size / self.max_speed
-        distance = math.sqrt((new_x - nearest.point.x)**2 + (new_y - nearest.point.y)**2)
-        travel_time = distance / self.max_speed
-        if new_time > nearest.time + travel_time:
-            new_time = nearest.time + travel_time
-        return Point(new_x, new_y), new_time
-
-    def collision_free(self, point, time):
-        for wall in self.obstacles:
-            if wall.distance(point) < PLAYER_RADIUS:
-                return False
-
-        x_idx = round(point.x)
-        y_idx = round(point.y)
-        t_idx = round(time / TIME_STEP)
-
-        if not (0 <= x_idx < GRID_SIZE and 0 <= y_idx < GRID_SIZE and 0 <= t_idx < TIME_RESOLUTION):
-            return False
-
-        if self.occupancy_grid[x_idx, y_idx, t_idx] == 1:
-            return False
-
-        radius_in_cells = math.ceil(OCCUPANCY_RADIUS / GRID_SIZE)
-        for dx in range(-radius_in_cells, radius_in_cells + 1):
-            for dy in range(-radius_in_cells, radius_in_cells + 1):
-                for dt in range(-radius_in_cells, radius_in_cells + 1):
-                    d = math.sqrt((dx * GRID_SIZE)**2 + (dy * GRID_SIZE)**2 + (dt * TIME_STEP)**2)
-                    if d <= OCCUPANCY_RADIUS:
-                        if (0 <= x_idx + dx < GRID_SIZE and
-                            0 <= y_idx + dy < GRID_SIZE and
-                            0 <= t_idx + dt < TIME_RESOLUTION):
-                            if self.occupancy_grid[x_idx + dx, y_idx + dy, t_idx + dt] == 1:
-                                return False
-
-        if self.enemy is not None:
-            predicted_pos, predicted_facing = self.enemy.predict_state(time)
-            dx = point.x - predicted_pos.x
-            dy = point.y - predicted_pos.y
-            dist = math.sqrt(dx**2 + dy**2)
-            if dist <= self.enemy.fov_range:
-                angle_to_point = math.degrees(math.atan2(dy, dx))
-                facing_degrees = math.degrees(predicted_facing)
-                angle_diff = (angle_to_point - facing_degrees + 180) % 360 - 180
-                if abs(angle_diff) <= self.enemy.fov_angle / 2:
-                    return False
-
-        return True
-
-    def plan(self):
-        for i in range(self.max_iter):
-            random_point, random_time = self.generate_random_point()
-            nearest = self.nearest_node(random_point, random_time)
-            new_point, new_time = self.new_point(nearest, random_point, random_time)
-            if self.collision_free(new_point, new_time):
-                new_node = Node(new_point, nearest, new_time)
-                self.nodes.append(new_node)
-                if new_point.distance(self.goal.point) <= self.step_size:
-                    self.goal.parent = new_node
-                    self.goal.time = new_node.time
-                    path = self.reconstruct_path(self.goal)
-                    print(f"Path found after {i+1} iterations!")
-                    return path
-        print("No path found")
-        return None
-
-    def reconstruct_path(self, node):
-        path = []
-        while node:
-            t = node.time if node.time is not None else (node.parent.time if node.parent else 0)
-            path.append((node.point, t))
-            node = node.parent
-        return path[::-1]
+            p = Point(x, y)
+            if is_point_collision_free(p, t, obstacles, enemy):
+                samples.append((p, t))
+        graph = {i: [] for i in range(len(samples))}
+        for i in range(len(samples)):
+            for j in range(len(samples)):
+                if i == j:
+                    continue
+                p1, t1 = samples[i]
+                p2, t2 = samples[j]
+                if t2 <= t1:
+                    continue
+                spatial_dist = p1.distance(p2)
+                expected_dt = spatial_dist / SPEED
+                if abs((t2 - t1) - expected_dt) < tolerance and spatial_dist < connection_radius:
+                    if is_edge_collision_free(samples[i], samples[j], obstacles, enemy):
+                        graph[i].append((j, spatial_dist))
+        num_nodes = len(samples)
+        dist = [float('inf')] * num_nodes
+        prev = [None] * num_nodes
+        dist[0] = 0
+        unvisited = set(range(num_nodes))
+        while unvisited:
+            u = min(unvisited, key=lambda idx: dist[idx])
+            unvisited.remove(u)
+            if u == 1:
+                break
+            for v, w in graph[u]:
+                alt = dist[u] + w
+                if alt < dist[v]:
+                    dist[v] = alt
+                    prev[v] = u
+        if dist[1] == float('inf'):
+            print("PRM: No path found.")
+            return None
+        path_indices = []
+        u = 1
+        while u is not None:
+            path_indices.insert(0, u)
+            u = prev[u]
+        path = [samples[idx] for idx in path_indices]
+        print(f"PRM: Path found with {len(path)} nodes.")
+        return path
 
 # -------------------------------
 # MovingEntity Base Class (with FOV)
@@ -205,24 +173,22 @@ class MovingEntity:
     def __init__(self, init_pos, init_speed, path, fov_angle=60, fov_range=5):
         self.position = init_pos
         self.speed = init_speed
-        self.path = path
+        self.path = path  # list of (Point, t) tuples
         self.current_target = 0
         self.forward = True
         self.fov_angle = fov_angle  # in degrees
         self.fov_range = fov_range  # simulation units
-        self.facing = 0             # current facing direction in radians
-        self.current_time = 0       # Added to track simulation time
+        self.facing = 0             # in radians
+        self.current_time = 0       # simulation time
 
     def move(self, delta_time):
         if not self.path or self.current_target >= len(self.path):
             return
-
         target = self.path[self.current_target]
-        target_point = target[0] if isinstance(target, tuple) else target
+        target_point = target[0]
         direction = math.atan2(target_point.y - self.position.y, target_point.x - self.position.x)
         self.facing = direction
         distance_to_target = self.position.distance(target_point)
-
         if isinstance(target, tuple):
             target_time = target[1]
             time_difference = target_time - self.current_time
@@ -233,7 +199,6 @@ class MovingEntity:
                 self.speed = SPEED
         else:
             self.speed = SPEED
-
         distance_to_move = self.speed * delta_time
         new_position = clamp_point(Point(self.position.x + distance_to_move * math.cos(direction),
                                           self.position.y + distance_to_move * math.sin(direction)))
@@ -244,7 +209,7 @@ class MovingEntity:
                 if self.current_target + 1 < len(self.path):
                     self.current_target += 1
                     next_target = self.path[self.current_target]
-                    next_point = next_target[0] if isinstance(next_target, tuple) else next_target
+                    next_point = next_target[0]
                     dnext = math.atan2(next_point.y - self.position.y, next_point.x - self.position.x)
                     self.position = clamp_point(Point(self.position.x + excess * math.cos(dnext),
                                                       self.position.y + excess * math.sin(dnext)))
@@ -254,7 +219,7 @@ class MovingEntity:
                 if self.current_target - 1 >= 0:
                     self.current_target -= 1
                     next_target = self.path[self.current_target]
-                    next_point = next_target[0] if isinstance(next_target, tuple) else next_target
+                    next_point = next_target[0]
                     dprev = math.atan2(next_point.y - self.position.y, next_point.x - self.position.x)
                     self.position = clamp_point(Point(self.position.x + excess * math.cos(dprev),
                                                       self.position.y + excess * math.sin(dprev)))
@@ -262,47 +227,23 @@ class MovingEntity:
                     self.forward = True
         else:
             self.position = new_position
-
         if isinstance(target, tuple):
             self.current_time += delta_time
-            self.time_error = self.current_time - target[1]
 
     def predict_state(self, t, last_time=0):
-        current_time = 0
-        current_segment = 0
-        path = self.path
-        if len(path) == 0:
+        if not self.path or len(self.path) == 0:
             return self.position, self.facing
-        if isinstance(path[0], tuple):
-            while current_segment < len(path) - 1:
-                start, _ = path[current_segment]
-                end, _ = path[current_segment + 1]
-                seg_dist = start.distance(end)
-                seg_time = seg_dist / self.speed
-                if current_time + seg_time >= t + last_time:
-                    fraction = (t + last_time - current_time) / seg_time
-                    x = start.x + fraction * (end.x - start.x)
-                    y = start.y + fraction * (end.y - start.y)
-                    facing = math.atan2(end.y - start.y, end.x - start.x)
-                    return clamp_point(Point(x, y)), facing
-                current_time += seg_time
-                current_segment += 1
-            return clamp_point(path[-1][0]), 0
-        else:
-            while current_segment < len(path) - 1:
-                start = path[current_segment]
-                end = path[current_segment + 1]
-                seg_dist = start.distance(end)
-                seg_time = seg_dist / self.speed
-                if current_time + seg_time >= t + last_time:
-                    fraction = (t + last_time - current_time) / seg_time
-                    x = start.x + fraction * (end.x - start.x)
-                    y = start.y + fraction * (end.y - start.y)
-                    facing = math.atan2(end.y - start.y, end.x - start.x)
-                    return clamp_point(Point(x, y)), facing
-                current_time += seg_time
-                current_segment += 1
-            return clamp_point(path[-1]), 0
+        current_time = 0
+        for i in range(len(self.path) - 1):
+            p0, t0 = self.path[i]
+            p1, t1 = self.path[i+1]
+            if t0 <= t <= t1:
+                fraction = (t - t0) / (t1 - t0)
+                x = p0.x + fraction * (p1.x - p0.x)
+                y = p0.y + fraction * (p1.y - p0.y)
+                facing = math.atan2(p1.y - p0.y, p1.x - p0.x)
+                return clamp_point(Point(x, y)), facing
+        return self.path[-1][0], 0
 
 # -------------------------------
 # Arbiter Class (Robot Controller)
@@ -344,8 +285,8 @@ class Environment:
         ]
         self.enemy = MovingEntity(clamp_point(start_enemy), enemy_speed, self.enemy_path, fov_angle=60, fov_range=5)
         self.arbiter = Arbiter(START_POSITION, SPEED)
-        self.rrt3d = RRT3D(START_POSITION, FLAG_POSITION, self.walls, enemy=self.enemy)
-        path = self.rrt3d.plan()
+        path = PRMPlanner.plan(START_POSITION, FLAG_POSITION, self.walls, self.enemy,
+                                n_samples=300, connection_radius=10, tolerance=1.0)
         if path:
             self.arbiter.set_path(path)
         self.last_time = time.time()
@@ -381,7 +322,7 @@ class Environment:
         self.frame_counter = (self.frame_counter + 1) % 5
         if self.frame_counter != 0:
             return
-        self.rrt3d.occupancy_grid = np.zeros((GRID_SIZE, GRID_SIZE, TIME_RESOLUTION))
+        self.rrt_occupancy = np.zeros((GRID_SIZE, GRID_SIZE, TIME_RESOLUTION))
         current_time = self.arbiter.current_time
         for t in range(TIME_RESOLUTION):
             shifted_time = current_time + t * TIME_STEP
@@ -389,15 +330,13 @@ class Environment:
             x_idx = int(enemy_pos.x)
             y_idx = int(enemy_pos.y)
             if 0 <= x_idx < GRID_SIZE and 0 <= y_idx < GRID_SIZE:
-                with self.rrt3d.lock:
-                    self.rrt3d.occupancy_grid[x_idx, y_idx, t] = 1
+                self.rrt_occupancy[x_idx, y_idx, t] = 1
 
     def replan_to_start(self):
-        self.update_occupancy_grid()
         new_start = self.arbiter.position
         def planning_thread():
-            rrt = RRT3D(new_start, START_POSITION, self.walls, enemy=self.enemy)
-            path = rrt.plan()
+            path = PRMPlanner.plan(new_start, START_POSITION, self.walls, self.enemy,
+                                     n_samples=300, connection_radius=10, tolerance=1.0)
             if path:
                 self.root.after(0, lambda: self.arbiter.set_path(path))
         threading.Thread(target=planning_thread, daemon=True).start()
@@ -405,11 +344,10 @@ class Environment:
         self.pausing = False
 
     def replan_to_flag(self):
-        self.update_occupancy_grid()
         new_start = self.arbiter.position
         def planning_thread():
-            rrt = RRT3D(new_start, FLAG_POSITION, self.walls, enemy=self.enemy)
-            path = rrt.plan()
+            path = PRMPlanner.plan(new_start, FLAG_POSITION, self.walls, self.enemy,
+                                     n_samples=300, connection_radius=10, tolerance=1.0)
             if path:
                 self.root.after(0, lambda: self.arbiter.set_path(path))
         threading.Thread(target=planning_thread, daemon=True).start()
@@ -463,10 +401,6 @@ class Environment:
 
     def get_rrt3d_data(self):
         tree_lines = []
-        for node in self.rrt3d.nodes:
-            if node.parent:
-                tree_lines.append(((node.parent.point.x, node.parent.point.y, node.parent.time),
-                                   (node.point.x, node.point.y, node.time)))
         path = self.arbiter.path
         return tree_lines, path
 
@@ -503,24 +437,12 @@ class MatplotlibFrame(tk.Frame):
     def update_plot(self):
         self.figure.clf()
         ax = self.figure.add_subplot(111, projection="3d")
-        ax.set_title("RRT3D Tree, Path, and Occupancy Grid")
+        ax.set_title("PRM Roadmap and Chosen Path")
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
         ax.set_zlabel("Time (rel)")
         ax.set_ylim(GRID_SIZE, 0)
-        with self.env.rrt3d.lock:
-            occ_grid = self.env.rrt3d.occupancy_grid.copy()
-        x_occ, y_occ, t_occ = np.where(occ_grid == 1)
-        t_occ_seconds = t_occ * TIME_STEP
-        ax.scatter(x_occ, y_occ, t_occ_seconds, c="red", marker="o", s=50, label="Occupied Cells")
         tree_lines, path = self.env.get_rrt3d_data()
-        for (p0, p1) in tree_lines:
-            if path:
-                t0 = p0[2] - path[0][1]
-                t1 = p1[2] - path[0][1]
-            else:
-                t0, t1 = p0[2], p1[2]
-            ax.plot([p0[0], p1[0]], [p0[1], p1[1]], [t0, t1], c="black", linewidth=1)
         if path:
             start_time = path[0][1]
             xs = [pt[0].x for pt in path]
@@ -539,7 +461,7 @@ class MatplotlibFrame(tk.Frame):
 class MainWindow(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Simulation with Embedded Pygame and Matplotlib (Tkinter)")
+        self.title("PRM-based Simulation with Embedded Pygame and Matplotlib (Tkinter)")
         self.geometry("1800x1000")
         self.env = Environment("simple")
         self.env.root = self
