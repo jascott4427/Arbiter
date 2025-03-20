@@ -142,8 +142,8 @@ class RRT3D:
 
         # Check neighboring cells within PLAYER_RADIUS
         radius_in_cells = math.ceil(OCCUPANCY_RADIUS / GRID_SIZE)
-        for dx in range(-radius_in_cells, radius_in_cells + 1):
-            for dy in range(-radius_in_cells, radius_in_cells + 1):
+        for dx in range(-radius_in_cells*2, 2*radius_in_cells + 1):
+            for dy in range(-radius_in_cells*2, 2*radius_in_cells + 1):
                 for dt in range(-radius_in_cells, radius_in_cells + 1):
                     # Calculate the actual distance in world units
                     distance = math.sqrt((dx * GRID_SIZE)**2 + (dy * GRID_SIZE)**2 + (dt * TIME_STEP)**2)
@@ -156,6 +156,25 @@ class RRT3D:
                                 return False
         return True
 
+    def line_of_sight(self, n1, n2):
+        """
+        Check if the line segment between p1 and p2 stays outside the OCCUPANCY_RADIUS of any occupied cell.
+        """
+        p1, t1 = n1.point, n1.time
+        p2, t2 = n2.point, n2.time
+        num_points = 20  # Number of points to check along the line
+        for i in range(num_points + 1):
+            alpha = i / num_points
+            x = p1.x + alpha * (p2.x - p1.x)  # Interpolate x
+            y = p1.y + alpha * (p2.y - p1.y)  # Interpolate y
+            t = t1 + alpha * (t2 - t1)        # Interpolate time
+            point = Point(x, y)
+
+            # Check if this intermediate point is in collision
+            if not self.collision_free(point, t):
+                return False  # Line segment intersects an occupied cell
+        return True  # Line segment is collision-free
+
     def plan(self):
         for i in range(self.max_iter):
             random_point, random_time = self.generate_random_point()
@@ -163,13 +182,14 @@ class RRT3D:
             new_point, new_time = self.new_point(nearest, random_point, random_time)
             if self.collision_free(new_point, new_time):
                 new_node = Node(new_point, nearest, new_time)
-                self.nodes.append(new_node)
-                if new_point.distance(self.goal.point) <= self.step_size:
-                    self.goal.parent = new_node
-                    self.goal.time = new_node.time
-                    path = self.reconstruct_path(self.goal)
-                    print(f"Path found after {i+1} iterations!")
-                    return path
+                if self.line_of_sight(nearest,new_node):    
+                    self.nodes.append(new_node)
+                    if new_point.distance(self.goal.point) <= self.step_size:
+                        self.goal.parent = new_node
+                        self.goal.time = new_node.time
+                        path = self.reconstruct_path(self.goal)
+                        print(f"Path found after {i+1} iterations!")
+                        return path
         print("No path found")
         return None
 
@@ -562,7 +582,7 @@ class MainWindow(tk.Tk):
         super().__init__()
         self.title("Simulation with Embedded Pygame and Matplotlib (Tkinter)")
         self.geometry("1800x1000")
-        self.env = Environment("simple")
+        self.env = Environment("maze")
         self.env.root = self
         sim_frame = SimulationFrame(self, self.env)
         sim_frame.pack(side="left", fill="both", expand=True)
