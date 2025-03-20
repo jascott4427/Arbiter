@@ -31,25 +31,24 @@ from PIL import Image, ImageTk
 GRID_SIZE = 25
 FPS = 120
 FRAME_DELAY = 1 / FPS
-SPEED = 10                # Maximum allowed robot speed.
-PLANNING_SPEED = 8        # Base speed used for time-parameterization.
+SPEED = 10                # Maximum robot speed.
+PLANNING_SPEED = 8        # Base speed used in time-parameterization.
 TIME_STEP = 0.1           # Time resolution for occupancy grid.
 TIME_HORIZON = GRID_SIZE * 3 / SPEED  # Overall time horizon for initial PRM.
 TIME_RESOLUTION = int(TIME_HORIZON / TIME_STEP)
-# When replanning (upon reaching target), use a shorter horizon.
-REPLAN_HORIZON = 5.0      
+REPLAN_HORIZON = 5.0      # When replanning, use a shorter horizon.
 FLAG_POSITION = Point(GRID_SIZE - 2, GRID_SIZE - 2)
 START_POSITION = Point(2, 2)
 PLAYER_RADIUS = 0.5
 OCCUPANCY_RADIUS = 2
 DT_EPSILON = 0.01         # Minimum allowed time difference for a forward edge.
-REPLAN_THRESHOLD = 0.2    # When robot is within this distance of its target, switch targets.
-NUM_NODES = 150           # Base number of nodes.
-# Parameters for enemy FOV avoidance (used in cost function during planning):
-ENEMY_BUFFER = 2.0        # Extra distance buffer.
-FOV_MARGIN = 15           # Extra angular margin in degrees.
-PENALTY_FACTOR = 250       # Weight for enemy avoidance cost.
-MAX_PLANNING_ATTEMPTS = 3  # Maximum planning attempts if no path is found.
+REPLAN_THRESHOLD = 0.2    # When robot is within this distance of target, trigger switch.
+NUM_NODES = 150           # Base number of nodes to sample.
+# --- Tuned parameters for enemy avoidance:
+ENEMY_BUFFER = 4.0        # Increased extra distance buffer.
+FOV_MARGIN = 30           # Increased angular margin (degrees).
+PENALTY_FACTOR = 10000    # Dramatically increased penalty factor.
+MAX_PLANNING_ATTEMPTS = 3
 
 # -------------------------------
 # Helper: Clamp a Point to the Grid
@@ -62,28 +61,28 @@ def clamp_point(point, min_val=0, max_val=GRID_SIZE):
 # -------------------------------
 WALL_CONFIGS = {
     "simple": [
-        Polygon([(0,0), (GRID_SIZE,0), (GRID_SIZE,1), (0,1)]),
-        Polygon([(0,GRID_SIZE-1), (GRID_SIZE,GRID_SIZE-1), (GRID_SIZE,GRID_SIZE), (0,GRID_SIZE)]),
-        Polygon([(0,0), (1,0), (1,GRID_SIZE), (0,GRID_SIZE)]),
-        Polygon([(GRID_SIZE-1,0), (GRID_SIZE,0), (GRID_SIZE,GRID_SIZE), (GRID_SIZE-1,GRID_SIZE)])
+        Polygon([(0, 0), (GRID_SIZE, 0), (GRID_SIZE, 1), (0, 1)]),
+        Polygon([(0, GRID_SIZE - 1), (GRID_SIZE, GRID_SIZE - 1), (GRID_SIZE, GRID_SIZE), (0, GRID_SIZE)]),
+        Polygon([(0, 0), (1, 0), (1, GRID_SIZE), (0, GRID_SIZE)]),
+        Polygon([(GRID_SIZE - 1, 0), (GRID_SIZE, 0), (GRID_SIZE, GRID_SIZE), (GRID_SIZE - 1, GRID_SIZE)])
     ],
     "obstacles": [
-        Polygon([(0,0), (GRID_SIZE,0), (GRID_SIZE,1), (0,1)]),
-        Polygon([(0,GRID_SIZE-1), (GRID_SIZE,GRID_SIZE-1), (GRID_SIZE,GRID_SIZE), (0,GRID_SIZE)]),
-        Polygon([(0,0), (1,0), (1,GRID_SIZE), (0,GRID_SIZE)]),
-        Polygon([(GRID_SIZE-1,0), (GRID_SIZE,0), (GRID_SIZE,GRID_SIZE), (GRID_SIZE-1,GRID_SIZE)]),
-        Polygon([(10,10), (15,10), (15,15), (10,15)]),
-        Polygon([(5,20), (10,20), (10,25), (5,25)])
+        Polygon([(0, 0), (GRID_SIZE, 0), (GRID_SIZE, 1), (0, 1)]),
+        Polygon([(0, GRID_SIZE - 1), (GRID_SIZE, GRID_SIZE - 1), (GRID_SIZE, GRID_SIZE), (0, GRID_SIZE)]),
+        Polygon([(0, 0), (1, 0), (1, GRID_SIZE), (0, GRID_SIZE)]),
+        Polygon([(GRID_SIZE - 1, 0), (GRID_SIZE, 0), (GRID_SIZE, GRID_SIZE), (GRID_SIZE - 1, GRID_SIZE)]),
+        Polygon([(10, 10), (15, 10), (15, 15), (10, 15)]),
+        Polygon([(5, 20), (10, 20), (10, 25), (5, 25)])
     ],
     "maze": [
-        Polygon([(0,0), (GRID_SIZE,0), (GRID_SIZE,1), (0,1)]),
-        Polygon([(0,GRID_SIZE-1), (GRID_SIZE,GRID_SIZE-1), (GRID_SIZE,GRID_SIZE), (0,GRID_SIZE)]),
-        Polygon([(0,0), (1,0), (1,GRID_SIZE), (0,GRID_SIZE)]),
-        Polygon([(GRID_SIZE-1,0), (GRID_SIZE,0), (GRID_SIZE,GRID_SIZE), (GRID_SIZE-1,GRID_SIZE)]),
-        Polygon([(5,5), (10,5), (10,10), (5,10)]),
-        Polygon([(15,5), (20,5), (20,10), (15,10)]),
-        Polygon([(5,15), (10,15), (10,20), (5,20)]),
-        Polygon([(15,15), (20,15), (20,20), (15,20)])
+        Polygon([(0, 0), (GRID_SIZE, 0), (GRID_SIZE, 1), (0, 1)]),
+        Polygon([(0, GRID_SIZE - 1), (GRID_SIZE, GRID_SIZE - 1), (GRID_SIZE, GRID_SIZE), (0, GRID_SIZE)]),
+        Polygon([(0, 0), (1, 0), (1, GRID_SIZE), (0, GRID_SIZE)]),
+        Polygon([(GRID_SIZE - 1, 0), (GRID_SIZE, 0), (GRID_SIZE, GRID_SIZE), (GRID_SIZE - 1, GRID_SIZE)]),
+        Polygon([(5, 5), (10, 5), (10, 10), (5, 10)]),
+        Polygon([(15, 5), (20, 5), (20, 10), (15, 10)]),
+        Polygon([(5, 15), (10, 15), (10, 20), (5, 20)]),
+        Polygon([(15, 15), (20, 15), (20, 20), (15, 20)])
     ]
 }
 
@@ -126,7 +125,7 @@ def reparameterize_path(path, planning_speed):
     return new_path
 
 # -------------------------------
-# PRM3D Class (3D: x, y, t) with Cost Function for Enemy Avoidance
+# PRM3D Class (3D: x, y, t) with Enemy-Aware Cost Function
 # -------------------------------
 import heapq
 
@@ -142,8 +141,7 @@ class PRM3D:
         self.step_size = step_size
         self.max_speed = max_speed
         self.nodes = []
-        # Use fixed global TIME_RESOLUTION for occupancy grid.
-        self.occupancy_grid = np.zeros((GRID_SIZE, GRID_SIZE, TIME_RESOLUTION))
+        self.occupancy_grid = np.zeros((GRID_SIZE, GRID_SIZE, int(self.time_horizon / TIME_STEP)))
         self.lock = threading.Lock()
         self.graph = {}
 
@@ -160,7 +158,7 @@ class PRM3D:
         x_idx = round(point.x)
         y_idx = round(point.y)
         t_idx = round(time / TIME_STEP)
-        if not (0 <= x_idx < GRID_SIZE and 0 <= y_idx < GRID_SIZE and 0 <= t_idx < TIME_RESOLUTION):
+        if not (0 <= x_idx < GRID_SIZE and 0 <= y_idx < GRID_SIZE and 0 <= t_idx < int(self.time_horizon / TIME_STEP)):
             return False
         if self.occupancy_grid[x_idx, y_idx, t_idx] == 1:
             return False
@@ -170,7 +168,7 @@ class PRM3D:
                 for dt in range(-radius_in_cells, radius_in_cells+1):
                     d = math.sqrt((dx * GRID_SIZE)**2 + (dy * GRID_SIZE)**2 + (dt * TIME_STEP)**2)
                     if d <= OCCUPANCY_RADIUS:
-                        if (0 <= x_idx+dx < GRID_SIZE and 0 <= y_idx+dy < GRID_SIZE and 0 <= t_idx+dt < TIME_RESOLUTION):
+                        if (0 <= x_idx+dx < GRID_SIZE and 0 <= y_idx+dy < GRID_SIZE and 0 <= t_idx+dt < int(self.time_horizon / TIME_STEP)):
                             if self.occupancy_grid[x_idx+dx, y_idx+dy, t_idx+dt] == 1:
                                 return False
         if self.enemy is not None:
@@ -392,8 +390,8 @@ class Enemy(MovingEntity):
 # Environment Class
 # -------------------------------
 class Environment:
-    def __init__(self, map_name="simple", plot_update_callback=None):
-        self.walls = WALL_CONFIGS.get(map_name, WALL_CONFIGS["simple"])
+    def __init__(self, map_name="maze", plot_update_callback=None):
+        self.walls = WALL_CONFIGS.get(map_name, WALL_CONFIGS["maze"])
         start_enemy = Point(GRID_SIZE/2, GRID_SIZE/2)
         enemy_second = Point(GRID_SIZE/2, GRID_SIZE - 2)
         enemy_third = Point(GRID_SIZE/2, 2)
@@ -406,7 +404,6 @@ class Environment:
             (enemy_third, time_to_second + time_to_third)
         ]
         self.enemy = Enemy(clamp_point(start_enemy), enemy_speed, enemy_path, fov_angle=60, fov_range=5)
-        # Initially plan from START to FLAG.
         self.prm3d = PRM3D(START_POSITION, FLAG_POSITION, self.walls, enemy=self.enemy, num_nodes=NUM_NODES)
         path = self.prm3d.plan()
         if path is None:
@@ -416,7 +413,6 @@ class Environment:
         self.arbiter.set_path(path)
         self.arbiter.enemy = self.enemy
         self.last_time = time.time()
-        # Initial state: moving from START to FLAG.
         self.state = "to_flag"
         self.target_reached = False
         self.screen = pygame.Surface((SIM_WIDTH, SIM_HEIGHT))
@@ -446,12 +442,14 @@ class Environment:
         return clamp_point(path[-1][0])
 
     def update_occupancy_grid(self):
-        # Use fixed global TIME_RESOLUTION for the occupancy grid.
-        occ = np.zeros((GRID_SIZE, GRID_SIZE, TIME_RESOLUTION))
+        self.frame_counter = (self.frame_counter + 1) % 5
+        if self.frame_counter != 0:
+            return
+        self.prm3d.occupancy_grid = np.zeros((GRID_SIZE, GRID_SIZE, int(self.prm3d.time_horizon / TIME_STEP)))
         current_time = self.enemy.current_time
-        for t in range(TIME_RESOLUTION):
-            shifted_time = current_time + t * TIME_STEP
-            enemy_pos = self.predict_enemy_position(shifted_time)
+        for t in range(int(self.prm3d.time_horizon / TIME_STEP)):
+            # For debugging, mark enemy's current cell (for every time slice)
+            enemy_pos = self.enemy.position
             x_idx = int(enemy_pos.x)
             y_idx = int(enemy_pos.y)
             for dx in range(-1, 2):
@@ -459,9 +457,8 @@ class Environment:
                     ix = x_idx + dx
                     iy = y_idx + dy
                     if 0 <= ix < GRID_SIZE and 0 <= iy < GRID_SIZE:
-                        occ[ix, iy, t] = 1
-        with self.prm3d.lock:
-            self.prm3d.occupancy_grid = occ
+                        with self.prm3d.lock:
+                            self.prm3d.occupancy_grid[ix, iy, t] = 1
 
     def update(self):
         self.update_occupancy_grid()
@@ -472,7 +469,6 @@ class Environment:
         self.enemy.move(delta_time)
         self.arbiter.move(delta_time)
 
-        # When near the target, trigger a one-time target switch.
         if self.state == "to_flag":
             if self.arbiter.position.distance(FLAG_POSITION) < REPLAN_THRESHOLD and not self.target_reached:
                 self.replan(switch_target=True)
@@ -584,6 +580,7 @@ class MatplotlibFrame(tk.Frame):
         ax.set_ylabel("Y")
         ax.set_zlabel("Time")
         ax.set_ylim(GRID_SIZE, 0)
+        ax.set_zlim(0, TIME_HORIZON)  # Ensure full time range is visible.
         occ = self.env.prm3d.occupancy_grid
         x_idx, y_idx, t_idx = np.where(occ == 1)
         t_vals = t_idx * TIME_STEP
@@ -612,7 +609,7 @@ class MainWindow(tk.Tk):
         super().__init__()
         self.title("3D PRM Path Planning with Fixed Target Switching")
         self.geometry("1800x1000")
-        self.env = Environment("simple")
+        self.env = Environment("maze")
         self.env.root = self
         sim_frame = SimulationFrame(self, self.env)
         sim_frame.pack(side="left", fill="both", expand=True)
