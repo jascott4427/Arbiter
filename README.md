@@ -19,7 +19,7 @@ This repository explores three path-planning algorithms:
 ### 1. 2D Rapidly-exploring Random Tree (RRT)
 The 2D RRT serves as a base algorithm to navigate static obstacles.
 
-![2D RRT Visualization](path_to_your_image_from_page_4.png)
+![2D RRT Visualization](2drrt.png)
 
 * **Logic**: Incremental tree building by sampling random points and moving from the nearest node toward the sample by a fixed step size.
 * **Pros**: Effectively avoids static obstacles using a buffer zone and is guaranteed to find a path if one exists.
@@ -29,7 +29,7 @@ The 2D RRT serves as a base algorithm to navigate static obstacles.
 ### 2. 3D RRT (Space-Time)
 This version extends the 2D RRT by treating time as a third dimension, allowing the bot to avoid predicted future positions of the enemy.
 
-![3D RRT Tree and Occupancy Grid](path_to_your_image_from_page_5.png)
+![3D RRT Tree and Occupancy Grid](3drrt.png)
 
 * **Logic**: The enemy's patrol is modeled as a 3D occupancy grid where each cell represents a specific time step.
 * **Constraints**: The tree must move forward in time, and links are only allowed if the bot can traverse them within its maximum speed.
@@ -39,7 +39,7 @@ This version extends the 2D RRT by treating time as a third dimension, allowing 
 ### 3. PRM with Cost Function (Final Implementation)
 The final implementation utilizes a Probabilistic Road Map (PRM) to prioritize safety and distance from the enemy.
 
-![3D PRM Roadmap and Path](path_to_your_image_from_page_10.png)
+![3D PRM Roadmap and Path](prm.png)
 
 * **Safety weighting**: Edges closer to the enemy are weighted higher, forcing the bot to take longer but safer paths.
 * **Cost Function**: A penalty is added to edges within the enemy's avoidance zone:
